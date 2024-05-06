@@ -2,7 +2,7 @@
 
 Hacks up TickProfiler to use a local copy of its LibLoader-fetched dependencies, instead of fetching them from the internet.
 
-Should function from 1.8 to 1.12 (latest version of tickprofiler); not sure about 1.7, but only due to the `cpw.mods.fml` -> `net.minecraftforge.fml` change
+Works on 1.12 and should work on earlier versions. 1.7 versions don't use LibLoader.
 
 ## Problem statement
 
