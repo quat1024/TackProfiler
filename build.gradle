@@ -1,0 +1,150 @@
+import java.util.jar.JarFile
+
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { url = "https://maven.minecraftforge.net/" }
+    }
+    
+    dependencies {
+        classpath group: "net.minecraftforge.gradle", name: "ForgeGradle", version: "5.1.+"
+    }
+}
+
+apply plugin: "java"
+apply plugin: "net.minecraftforge.gradle"
+
+group = "agency.highlysuspect"
+archivesBaseName = "TackProfiler"
+version = "1.0"
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(8)
+compileJava {
+    sourceCompatibility = "8"
+    targetCompatibility = "8"
+}
+
+//For some crazy reason, I can't seem to populate META-INF/MANIFEST.MF by just creating it in src/main/resources.
+//It's getting overwritten with a blank manifest. Dunno why.
+jar {
+    manifest {
+        attributes([
+            FMLCorePlugin: "agency.highlysuspect.tackprofiler.TackProfiler"
+        ])
+    }
+    
+    //Make sure we get sorted above libloader alphabetically
+    baseName "# #TackProfiler"
+}
+
+//Copy the resulting jar into ./run/mods/, this is just for runClient convenience.
+def copyIntoRunDir = tasks.register("copyIntoRunDir", Copy) {
+    from tasks.jar.archiveFile.get()
+    into "./run/mods/"
+    duplicatesStrategy "INCLUDE" //overwrite, hopefully
+}
+tasks.jar.finalizedBy copyIntoRunDir
+
+tasks.register("downloadLibLoaderLibs", Task) {
+    it.group = "libloader"
+    
+    doLast {
+        //Harvest data from mod jars that use libloader
+        def ref = new File("./ref")
+        Map<String, String> libs = [:]
+        
+        for(File tickprofiler : ref.listFiles()) {
+            try(JarFile jar = new JarFile(tickprofiler)) {
+                def attrs = jar.manifest.mainAttributes
+                
+                //See LibLoaderChained.loadLibraries
+                for(int i = 0; true; i++) {
+                    String group = attrs.getValue("LibLoader-group" + i)
+                    if(group == null) break
+                    
+                    String name = attrs.getValue("LibLoader-name" + i)
+                    String classifier = attrs.getValue("LibLoader-classifier" + i)
+                    String version = attrs.getValue("LibLoader-version" + i)
+                    String url = attrs.getValue("LibLoader-url" + i)
+                    
+                    if(url == null) continue //This one won't be downloaded
+                    
+                    //See LibLoaderChained$Version.toString()
+                    String classifier2 = classifier == null ? "" : "-${classifier}"
+                    String key = "${group}.${name}${classifier2}-${version}"
+                    
+                    logger.lifecycle("Found downloaded lib inside ${tickprofiler}: ${key} -> ${url}")
+                    String prevUrl = libs.put(key, url)
+                    if(prevUrl != null && url != prevUrl) {
+                        throw new RuntimeException("Differing URLs for ${key}; was ${prevUrl} now ${url}")
+                    }
+                }
+            }
+        }
+        
+        logger.lifecycle("Found " + libs.size() + " libraries to download:")
+        libs.entrySet().forEach {
+            logger.lifecycle("\t${it.key} from ${it.value}")
+        }
+        
+        def dest = new File("./src/main/resources/cached-libloader-libs/")
+        dest.mkdirs()
+        
+        libs.entrySet().forEach {
+            def filename = it.key + ".jar"
+            def filepath = new File(dest, filename)
+            
+            //TODO: download from maven central instead of jcenter
+            // Some libraries (me.nallar.whocalled:WhoCalled) are only available on jcenter tho
+            def url = it.value
+            
+            if(filepath.exists()) {
+                filepath.delete()
+            }
+            
+            try {
+                new URL(url).withInputStream {i -> filepath.withOutputStream {it << i}}
+            } catch(Exception e) {
+                logger.fatal("Failed to download ${filename} from ${url}", e)
+            }
+        }
+    }
+}
+
+repositories {
+    maven {
+        url = "https://maven.minecraftforge.net/"
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:1.12.2-14.23.5.2860"
+}
+
+minecraft {
+    mappings channel: "stable", version: "39-1.12"
+    
+    runs {
+        "client" {
+            workingDirectory file("./run")
+            mods { "${project.name}" { source sourceSets.main } }
+        }
+        
+        "server" {
+            workingDirectory file("./run/server")
+            mods { "${project.name}" { source sourceSets.main } }
+        }
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    
+    filesMatching("mcmod.info") {
+        expand "version": project.version
+    }
+}
+
+//When Forge 1.12 loads mods from a directory that's been put on the classpath, it expects to find resources in the same directory.
+//Default Gradle behavior puts resources in ./build/resources/main instead of ./build/classes/main/java. Let's change that.
+sourceSets.all { it.output.resourcesDir = it.output.classesDirs.getFiles().iterator().next() }
