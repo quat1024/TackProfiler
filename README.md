@@ -2,6 +2,8 @@
 
 Hacks up TickProfiler to use a local copy of its LibLoader-fetched dependencies, instead of fetching them from the internet.
 
+Should function from 1.8 to 1.12 (latest version of tickprofiler); not sure about 1.7, but only due to the `cpw.mods.fml` -> `net.minecraftforge.fml` change
+
 ## Problem statement
 
 TickProfiler uses a library called [LibLoader](https://github.com/MinimallyCorrect/LibLoader) which attempts to fetch extra dependencies from the Internet; specifically, from JCenter.
